@@ -1,0 +1,176 @@
+// prisma/schema.prisma
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Currency {
+  BGN
+  EUR
+}
+
+enum PriceType {
+  FIXED
+  HOURLY
+}
+
+model User {
+  id            Int       @id @default(autoincrement())
+  email         String    @unique
+  passwordHash  String
+  firstName     String
+  lastName      String
+  phone         String
+  userType      UserType
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Profile settings
+  bio           String?
+  address       String?
+  country       String?
+  state         String?
+  city          String?
+  postalCode    String?
+  currency      String?
+  language      String?
+  gender        String?
+  dateOfBirth   DateTime?
+  
+  // Security settings
+  twoFactorEnabled Boolean @default(false)
+  lastPasswordChange DateTime?
+  
+  // Notification settings
+  emailNotifications Boolean @default(true)
+  smsNotifications   Boolean @default(true)
+  promotionalEmails  Boolean @default(true)
+
+  // Relations
+  providerProfile   ProviderProfile?
+  bookingsAsCustomer Booking[]
+  blogPosts        BlogPost[]
+}
+
+enum UserType {
+  provider
+  customer
+}
+
+model ProviderProfile {
+  id                Int       @id @default(autoincrement())
+  userId           Int       @unique
+  user             User      @relation(fields: [userId], references: [id])
+  companyName      String?
+  description      String?
+  address          String?
+  city             String?
+  postalCode       String?
+  rating           Float?
+  isVerified       Boolean   @default(false)
+  documentsVerified Boolean  @default(false)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  // Relations
+  services         Service[]
+}
+
+model Service {
+  id          Int       @id @default(autoincrement())
+  providerId  Int
+  provider    ProviderProfile @relation(fields: [providerId], references: [id])
+  title       String
+  description String
+  categoryId  Int
+  category    Category  @relation(fields: [categoryId], references: [id])
+  price       Float     // The actual price amount
+  priceType   PriceType // Whether it's FIXED or HOURLY
+  currency    Currency  @default(BGN)
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  images      ServiceImage[]  // This will be our single relation to ServiceImage
+  address     String?
+  city        String?
+  state       String?
+  postalCode  String?
+  country     String?
+  bookings    Booking[]
+}
+
+model ServiceImage {
+  id        Int      @id @default(autoincrement())
+  serviceId Int
+  service   Service  @relation(fields: [serviceId], references: [id])
+  imageUrl  String
+  isMain    Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+model Category {
+  id          Int       @id @default(autoincrement())
+  name        String    @unique
+  description String?
+  parentId    Int?
+  parent      Category? @relation("CategoryToCategory", fields: [parentId], references: [id])
+  children    Category[] @relation("CategoryToCategory")
+  createdAt   DateTime  @default(now())
+
+  // Relations
+  services    Service[]
+}
+
+model BlogPost {
+  id          Int       @id @default(autoincrement())
+  title       String
+  content     String
+  authorId    Int
+  author      User      @relation(fields: [authorId], references: [id])
+  status      BlogStatus @default(draft)
+  publishedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model Booking {
+  id          Int       @id @default(autoincrement())
+  serviceId   Int
+  service     Service   @relation(fields: [serviceId], references: [id])
+  customerId  Int
+  customer    User      @relation(fields: [customerId], references: [id])
+  bookingDate DateTime
+  status      BookingStatus @default(pending)
+  totalPrice  Float
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  // Relations
+  review      Review?
+}
+
+model Review {
+  id          Int       @id @default(autoincrement())
+  bookingId   Int       @unique
+  booking     Booking   @relation(fields: [bookingId], references: [id])
+  rating      Int       // We'll validate the rating range in application code
+  comment     String?
+  createdAt   DateTime  @default(now())
+}
+
+enum BlogStatus {
+  draft
+  published
+  archived
+}
+
+enum BookingStatus {
+  pending
+  confirmed
+  completed
+  cancelled
+}
