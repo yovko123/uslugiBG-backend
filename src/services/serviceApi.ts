@@ -1,6 +1,6 @@
 // src/services/serviceApi.ts
 import api, { ApiResponse } from './api';
-import { Service, ServiceFormData } from '../types/prisma';
+import { Service } from '../types/prisma';
 
 interface ServiceParams {
   isActive?: boolean;
