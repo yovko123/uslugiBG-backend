@@ -11,6 +11,8 @@ export interface FileRequest extends AuthenticatedRequest {
   files?: Express.Multer.File[];
 }
 
-export interface ServiceRequest extends FileRequest {
-  // Add any additional service-specific request properties here
+export interface ServiceRequest extends Request {
+  user?: UserWithProfile;
+  file?: Express.Multer.File;
+  files?: Express.Multer.File[];
 }

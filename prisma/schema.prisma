@@ -81,35 +81,37 @@ model ProviderProfile {
 }
 
 model Service {
-  id          Int       @id @default(autoincrement())
-  providerId  Int
-  provider    ProviderProfile @relation(fields: [providerId], references: [id])
-  title       String
-  description String
-  categoryId  Int
-  category    Category  @relation(fields: [categoryId], references: [id])
-  price       Float     // The actual price amount
-  priceType   PriceType // Whether it's FIXED or HOURLY
-  currency    Currency  @default(BGN)
-  isActive    Boolean   @default(true)
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  images      ServiceImage[]  // This will be our single relation to ServiceImage
-  address     String?
-  city        String?
-  state       String?
-  postalCode  String?
-  country     String?
-  bookings    Booking[]
+  id            Int       @id @default(autoincrement())
+  providerId    Int
+  provider      ProviderProfile @relation(fields: [providerId], references: [id])
+  title         String
+  description   String
+  categoryId    Int
+  category      Category  @relation(fields: [categoryId], references: [id])
+  price         Float    
+  priceType     PriceType
+  currency      Currency  @default(BGN)
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  address       String?
+  city          String?
+  state         String?
+  postalCode    String?
+  country       String?
+  
+  // Relations
+  serviceImages ServiceImage[]
+  bookings      Booking[]
 }
 
 model ServiceImage {
-  id        Int      @id @default(autoincrement())
-  serviceId Int
-  service   Service  @relation(fields: [serviceId], references: [id])
-  imageUrl  String
-  isMain    Boolean  @default(false)
-  createdAt DateTime @default(now())
+  id          Int      @id @default(autoincrement())
+  serviceId   Int
+  service     Service  @relation(fields: [serviceId], references: [id])
+  imageUrl    String
+  isMain      Boolean  @default(false)
+  createdAt   DateTime @default(now())
 }
 
 model Category {
