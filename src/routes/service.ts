@@ -9,7 +9,8 @@ import {
   updateService, 
   deleteService,
   getProviderServices,
-  getServices 
+  getServices,
+  deleteServiceImage
 } from '../controllers/service/serviceController';
 import { ServiceRequest } from '../types/middleware';
 
@@ -37,5 +38,6 @@ router.post('/', upload.array('images', 3), handleServiceRequest(createService))
 router.get('/:id(\\d+)', getService);
 router.put('/:id', upload.array('images', 3), handleServiceRequest(updateService));
 router.delete('/:id', deleteService);
+router.delete('/images/:imageId', deleteServiceImage);
 
 export default router;

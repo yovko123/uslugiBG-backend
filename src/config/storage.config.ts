@@ -18,14 +18,10 @@ class LocalStorageService implements StorageService {
   }
 
   async saveFile(buffer: Buffer, originalname: string): Promise<string> {
-    const timestamp = Date.now();
-    const filename = `${timestamp}-${originalname}`;
+    const filename = `${Date.now()}-${originalname}`;
     const filepath = path.join(this.uploadDir, filename);
-    
     await fs.promises.writeFile(filepath, buffer);
-    
-    // Return the URL path that can be used to access the file
-    return `/uploads/${filename}`;
+    return `/uploads/${filename}`; // This should match your static assets route
   }
 
   async deleteFile(fileUrl: string): Promise<void> {

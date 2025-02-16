@@ -146,7 +146,7 @@ export const getService = async (req: Request, res: Response, next: NextFunction
 
     const service = await prisma.service.findUnique({
       where: {
-        id: serviceId
+        id: Number(req.params.id)
       },
       include: {
         provider: {
@@ -264,14 +264,16 @@ export const updateService = async (req: ServiceRequest, res: Response, next: Ne
       return;
     }
 
+    // Parse request data
+    const serviceData = req.body.data ? JSON.parse(req.body.data) : req.body;
+    const keepImageIds = req.body.keepImageIds ? JSON.parse(req.body.keepImageIds) : [];
+
+    // Validate service ownership
     const existingService = await prisma.service.findUnique({
       where: { id: parseInt(id) },
       include: {
-        provider: {
-          include: {
-            user: true
-          }
-        }
+        provider: { include: { user: true } },
+        serviceImages: true
       }
     });
 
@@ -280,85 +282,116 @@ export const updateService = async (req: ServiceRequest, res: Response, next: Ne
       return;
     }
 
-    if (existingService.provider.userId !== userId) {
-      res.status(403).json({ success: false, message: 'Not authorized to update this service' });
+    if (existingService.provider.user.id !== userId) {
+      res.status(403).json({ success: false, message: 'Not authorized' });
       return;
     }
 
-    const {
-      title,
-      description,
-      categoryId,
-      price,
-      priceType,
-      address,
-      city,
-      state,
-      postalCode,
-      isActive
-    } = req.body;
-
-    // Update the service
-    const updatedService = await prisma.service.update({
-      where: { id: parseInt(id) },
-      data: {
-        title,
-        description,
-        categoryId: parseInt(categoryId),
-        price: parseFloat(price),
-        priceType: priceType.toUpperCase() as PriceType,
-        address,
-        city,
-        state,
-        postalCode,
-        isActive: isActive ?? true
-      },
-      include: {
-        provider: {
-          include: {
-            user: true
-          }
-        },
-        category: true,
-        bookings: true,
-        serviceImages: true
-      }
-    });
-
-    // Handle image updates if new files are provided
-    if (req.files && Array.isArray(req.files)) {
-      // Delete existing images
-      const existingImages = await prisma.serviceImage.findMany({
-        where: { serviceId: parseInt(id) }
+    // Handle image updates
+    try {
+      // Delete unwanted images
+      await prisma.serviceImage.deleteMany({
+        where: {
+          serviceId: existingService.id,
+          NOT: { id: { in: keepImageIds } }
+        }
       });
 
-      for (const image of existingImages) {
-        await storage.deleteFile(image.imageUrl);
-        await prisma.serviceImage.delete({
-          where: { id: image.id }
-        });
+      // Add new images
+      if (req.files && req.files.length > 0) {
+        for (const file of req.files) {
+          const imageUrl = await storage.saveFile(file.buffer, file.originalname);
+          await prisma.serviceImage.create({
+            data: {
+              serviceId: existingService.id,
+              imageUrl,
+              isMain: existingService.serviceImages.length === 0
+            }
+          });
+        }
       }
-
-      // Upload new images
-      for (let i = 0; i < req.files.length; i++) {
-        const file = req.files[i];
-        const imageUrl = await storage.saveFile(file.buffer, file.originalname);
-        await prisma.serviceImage.create({
-          data: {
-            serviceId: parseInt(id),
-            imageUrl,
-            isMain: i === 0
-          }
-        });
-      }
+    } catch (error) {
+      console.error('Image update error:', error);
+      res.status(500).json({ success: false, message: 'Image update failed' });
+      return;
     }
+    
+
+    // Update service data
+    const updatedService = await prisma.service.update({
+      where: { id: existingService.id },
+      data: {
+        title: serviceData.title,
+        description: serviceData.description,
+        categoryId: parseInt(serviceData.categoryId),
+        price: parseFloat(serviceData.price),
+        priceType: serviceData.priceType.toUpperCase(),
+        address: serviceData.address,
+        city: serviceData.city,
+        state: serviceData.state,
+        postalCode: serviceData.postalCode,
+        isActive: serviceData.isActive
+      },
+      include: {
+        serviceImages: true,
+        provider: { include: { user: true } },
+        category: true
+      }
+    });
 
     res.json({
       success: true,
-      data: updatedService
+      data: updatedService,
+      message: 'Service updated successfully'
     });
   } catch (error) {
     next(error);
+  }
+};
+
+export const deleteServiceImage = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const imageId = Number(req.params.imageId);
+    const userId = req.user?.id;
+
+    if (!userId) {
+      res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+
+    // Verify image ownership
+    const image = await prisma.serviceImage.findUnique({
+      where: { id: imageId },
+      include: {
+        service: {
+          include: {
+            provider: {
+              include: { user: true }
+            }
+          }
+        }
+      }
+    });
+
+    if (!image || image.service.provider.user.id !== userId) {
+      res.status(403).json({ 
+        success: false, 
+        message: 'Not authorized to delete this image' 
+      });
+      return;
+    }
+
+    await storage.deleteFile(image.imageUrl);
+    await prisma.serviceImage.delete({
+      where: { id: imageId }
+    });
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting image:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to delete image' 
+    });
   }
 };
 
