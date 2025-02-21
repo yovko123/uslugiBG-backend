@@ -93,20 +93,46 @@ export const createService = async (req: ServiceRequest, res: Response, next: Ne
 
 export const getServices = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const { categoryId, city, priceMin, priceMax } = req.query;
-    
-    const where = {
-      isActive: true,
-      ...(categoryId && { categoryId: parseInt(categoryId as string) }),
-      ...(city && { city: city as string }),
-      ...(priceMin || priceMax ? {
-        price: {
-          ...(priceMin && { gte: parseFloat(priceMin as string) }),
-          ...(priceMax && { lte: parseFloat(priceMax as string) })
-        }
-      } : {})
-    };
+    console.log('Raw query:', req.query);
 
+    // Basic where clause
+    const where: Prisma.ServiceWhereInput = { isActive: true };
+
+    // Build filters
+    if (req.query.keyword) {
+      where.OR = [
+        { title: { contains: req.query.keyword as string, mode: Prisma.QueryMode.insensitive } },
+        { description: { contains: req.query.keyword as string, mode: Prisma.QueryMode.insensitive } }
+      ];
+    }
+
+    if (req.query.categoryId) {
+      where.categoryId = parseInt(req.query.categoryId as string);
+    }
+
+    if (req.query.city) {
+      where.city = { contains: req.query.city as string, mode: Prisma.QueryMode.insensitive };
+    }
+
+    if (req.query.priceMin || req.query.priceMax) {
+      where.price = {};
+      if (req.query.priceMin) {
+        where.price.gte = parseFloat(req.query.priceMin as string);
+      }
+      if (req.query.priceMax) {
+        where.price.lte = parseFloat(req.query.priceMax as string);
+      }
+    }
+
+    // Get total count before pagination
+    const totalCount = await prisma.service.count({ where });
+
+    // Add pagination
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 6;
+    const skip = (page - 1) * limit;
+
+    // Get paginated services
     const services = await prisma.service.findMany({
       where,
       include: {
@@ -119,14 +145,18 @@ export const getServices = async (req: Request, res: Response, next: NextFunctio
         bookings: true,
         serviceImages: true
       },
-      orderBy: { createdAt: 'desc' }
+      orderBy: { createdAt: 'desc' },
+      skip,
+      take: limit
     });
 
     res.json({
       success: true,
-      data: services
+      data: services,
+      total: totalCount
     });
   } catch (error) {
+    console.error('Error in getServices:', error);
     next(error);
   }
 };
@@ -184,36 +214,8 @@ export const getProviderServices = async (req: Request, res: Response, next: Nex
     const isActive = req.query.isActive === 'true';
     const sortBy = req.query.sortBy as string;
 
-      // Handle sort parameter
-      const orderBy: Prisma.ServiceOrderByWithRelationInput[] = [];
-    
-      switch (sortBy) {
-        case 'newest':
-          orderBy.push({ createdAt: 'desc' });
-          break;
-        case 'oldest':
-          orderBy.push({ createdAt: 'asc' });
-          break;
-        case 'a-z':
-          orderBy.push({ title: 'asc' });
-          break;
-        case 'z-a':
-          orderBy.push({ title: 'desc' });
-          break;
-        default:
-          orderBy.push({ createdAt: 'desc' });
-      }
-      
-      // Add secondary sorting for alphabetical
-      if (['a-z', 'z-a'].includes(sortBy)) {
-        orderBy.push({ createdAt: 'desc' });
-      }
-    
     if (!userId) {
-      res.status(401).json({
-        success: false,
-        message: 'Unauthorized'
-      });
+      res.status(401).json({ success: false, message: 'Unauthorized' });
       return;
     }
 
@@ -222,13 +224,43 @@ export const getProviderServices = async (req: Request, res: Response, next: Nex
     });
 
     if (!provider) {
-      res.status(404).json({
-        success: false,
-        message: 'Provider profile not found'
-      });
+      res.status(404).json({ success: false, message: 'Provider profile not found' });
       return;
     }
 
+    // Parse pagination parameters
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 6;
+    const skip = (page - 1) * limit;
+
+    // Setup ordering based on sortBy
+    const orderBy: Prisma.ServiceOrderByWithRelationInput[] = [];
+    switch (sortBy) {
+      case 'newest':
+        orderBy.push({ createdAt: 'desc' });
+        break;
+      case 'oldest':
+        orderBy.push({ createdAt: 'asc' });
+        break;
+      case 'a-z':
+        orderBy.push({ title: 'asc' });
+        break;
+      case 'z-a':
+        orderBy.push({ title: 'desc' });
+        break;
+      default:
+        orderBy.push({ createdAt: 'desc' });
+    }
+
+    // Get the total count for pagination
+    const totalCount = await prisma.service.count({
+      where: {
+        providerId: provider.id,
+        isActive
+      }
+    });
+
+    // Fetch only the required page
     const services = await prisma.service.findMany({
       where: {
         providerId: provider.id,
@@ -242,110 +274,127 @@ export const getProviderServices = async (req: Request, res: Response, next: Nex
         serviceImages: true,
         bookings: true
       },
-      orderBy
+      orderBy,
+      skip,
+      take: limit
     });
 
     res.json({
       success: true,
-      data: services
+      data: services,
+      total: totalCount
     });
   } catch (error) {
     next(error);
   }
 };
 
-export const updateService = async (req: ServiceRequest, res: Response, next: NextFunction): Promise<void> => {
+
+export const updateService = async (
+  req: ServiceRequest, 
+  res: Response, 
+  next: NextFunction
+): Promise<void | Response> => {
   try {
-    const { id } = req.params;
-    const userId = req.user?.id;
+      const { id } = req.params;
+      const files = req.files as Express.Multer.File[];
+      const deleteImageIds = JSON.parse(req.body.deleteImageIds || '[]');
+      const MAX_IMAGES = 5;
 
-    if (!userId) {
-      res.status(401).json({ success: false, message: 'Unauthorized' });
-      return;
-    }
-
-    // Parse request data
-    const serviceData = req.body.data ? JSON.parse(req.body.data) : req.body;
-    const keepImageIds = req.body.keepImageIds ? JSON.parse(req.body.keepImageIds) : [];
-
-    // Validate service ownership
-    const existingService = await prisma.service.findUnique({
-      where: { id: parseInt(id) },
-      include: {
-        provider: { include: { user: true } },
-        serviceImages: true
-      }
-    });
-
-    if (!existingService) {
-      res.status(404).json({ success: false, message: 'Service not found' });
-      return;
-    }
-
-    if (existingService.provider.user.id !== userId) {
-      res.status(403).json({ success: false, message: 'Not authorized' });
-      return;
-    }
-
-    // Handle image updates
-    try {
-      // Delete unwanted images
-      await prisma.serviceImage.deleteMany({
-        where: {
-          serviceId: existingService.id,
-          NOT: { id: { in: keepImageIds } }
-        }
+      // Get current service with images
+      const currentService = await prisma.service.findUnique({
+          where: { id: parseInt(id) },
+          include: {
+              serviceImages: true
+          }
       });
 
-      // Add new images
-      if (req.files && req.files.length > 0) {
-        for (const file of req.files) {
-          const imageUrl = await storage.saveFile(file.buffer, file.originalname);
-          await prisma.serviceImage.create({
-            data: {
-              serviceId: existingService.id,
-              imageUrl,
-              isMain: existingService.serviceImages.length === 0
-            }
+      if (!currentService) {
+          return res.status(404).json({
+              success: false,
+              message: 'Service not found'
           });
-        }
       }
-    } catch (error) {
-      console.error('Image update error:', error);
-      res.status(500).json({ success: false, message: 'Image update failed' });
-      return;
-    }
-    
 
-    // Update service data
-    const updatedService = await prisma.service.update({
-      where: { id: existingService.id },
-      data: {
-        title: serviceData.title,
-        description: serviceData.description,
-        categoryId: parseInt(serviceData.categoryId),
-        price: parseFloat(serviceData.price),
-        priceType: serviceData.priceType.toUpperCase(),
-        address: serviceData.address,
-        city: serviceData.city,
-        state: serviceData.state,
-        postalCode: serviceData.postalCode,
-        isActive: serviceData.isActive
-      },
-      include: {
-        serviceImages: true,
-        provider: { include: { user: true } },
-        category: true
+      // Calculate total images after update
+      const remainingImages = currentService.serviceImages.filter(
+          img => !deleteImageIds.includes(img.id)
+      ).length;
+      const newImagesCount = files?.length || 0;
+      const totalImagesAfterUpdate = remainingImages + newImagesCount;
+
+      if (totalImagesAfterUpdate > MAX_IMAGES) {
+          return res.status(400).json({
+              success: false,
+              message: `Maximum ${MAX_IMAGES} images allowed. Current total would be ${totalImagesAfterUpdate}`
+          });
       }
-    });
 
-    res.json({
-      success: true,
-      data: updatedService,
-      message: 'Service updated successfully'
-    });
+      const serviceData = {
+        ...(req.body.title && { title: req.body.title }),
+        ...(req.body.description && { description: req.body.description }),
+        ...(req.body.categoryId && { categoryId: parseInt(req.body.categoryId) }),
+        ...(req.body.price && { price: parseFloat(req.body.price) }),
+        ...(req.body.priceType && { priceType: req.body.priceType }),
+        ...(req.body.address && { address: req.body.address }),
+        ...(req.body.city && { city: req.body.city }),
+        ...(req.body.state && { state: req.body.state }),
+        ...(req.body.postalCode && { postalCode: req.body.postalCode }),
+        ...(typeof req.body.isActive !== 'undefined' && { 
+            isActive: req.body.isActive === true || req.body.isActive === 'true' 
+        })
+    };
+
+      // Start a transaction
+      const updatedService = await prisma.$transaction(async (prisma) => {
+          // Handle image deletions
+          if (deleteImageIds.length > 0) {
+              const imagesToDelete = await prisma.serviceImage.findMany({
+                  where: {
+                      id: { in: deleteImageIds }
+                  }
+              });
+
+              for (const image of imagesToDelete) {
+                  await storage.deleteFile(image.imageUrl);
+                  await prisma.serviceImage.delete({
+                      where: { id: image.id }
+                  });
+              }
+          }
+
+          // Handle new images
+          if (files && files.length > 0) {
+              for (const file of files) {
+                  const imageUrl = await storage.saveFile(file.buffer, file.originalname);
+                  await prisma.serviceImage.create({
+                      data: {
+                          serviceId: parseInt(id),
+                          imageUrl: imageUrl,
+                          isMain: false
+                      }
+                  });
+              }
+          }
+
+          // Update service
+          return await prisma.service.update({
+              where: { id: parseInt(id) },
+              data: serviceData,
+              include: {
+                  serviceImages: true,
+                  provider: true
+              }
+          });
+      });
+
+      return res.json({
+          success: true,
+          data: updatedService,
+          message: 'Service updated successfully'
+      });
   } catch (error) {
-    next(error);
+      next(error);
   }
 };
 
@@ -380,6 +429,7 @@ export const deleteServiceImage = async (req: Request, res: Response): Promise<v
       return;
     }
 
+    // Delete from storage and database
     await storage.deleteFile(image.imageUrl);
     await prisma.serviceImage.delete({
       where: { id: imageId }

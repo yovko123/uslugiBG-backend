@@ -2,42 +2,42 @@
 import { Router } from 'express';
 import { Request, Response, NextFunction } from 'express';
 import { authenticateToken } from '../middleware/auth';
-import upload from '../middleware/upload';
+import { uploadMiddleware } from '../middleware/upload';
 import {
   createService, 
-  getService, 
   updateService, 
   deleteService,
+  getService,
   getProviderServices,
-  getServices,
-  deleteServiceImage
+  getServices
 } from '../controllers/service/serviceController';
 import { ServiceRequest } from '../types/middleware';
 
 const router = Router();
 
-// Type conversion middleware
-const handleServiceRequest = (
-  handler: (req: ServiceRequest, res: Response, next: NextFunction) => Promise<void>
-) => {
-  return async (req: Request, res: Response, next: NextFunction) => {
-    await handler(req as ServiceRequest, res, next);
+// Define route handler type
+type RouteHandler = (
+  req: ServiceRequest,
+  res: Response,
+  next: NextFunction
+) => Promise<any>;
+
+// Type-safe wrapper for route handlers
+const handleServiceRequest = (handler: RouteHandler) => {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    handler(req as ServiceRequest, res, next).catch(next);
   };
 };
 
-// Authentication middleware
+// Apply authentication middleware
 router.use(authenticateToken);
 
-// GET provider services (must be before generic routes)
-router.get('/provider', getProviderServices);
-
-// Service CRUD routes
-router.get('/', getServices);
-router.post('/', upload.array('images', 3), handleServiceRequest(createService));
-//router.get('/:id', getService);
-router.get('/:id(\\d+)', getService);
-router.put('/:id', upload.array('images', 3), handleServiceRequest(updateService));
-router.delete('/:id', deleteService);
-router.delete('/images/:imageId', deleteServiceImage);
+// Service routes
+router.get('/provider', handleServiceRequest(getProviderServices));
+router.get('/', handleServiceRequest(getServices));
+router.post('/', uploadMiddleware, handleServiceRequest(createService));
+router.get('/:id(\\d+)', handleServiceRequest(getService));
+router.put('/:id', uploadMiddleware, handleServiceRequest(updateService));
+router.delete('/:id', handleServiceRequest(deleteService));
 
 export default router;

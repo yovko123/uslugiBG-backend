@@ -8,7 +8,6 @@ import categoryRoutes from './routes/category';
 import serviceRoutes from './routes/service';
 import path from 'path';
 
-
 dotenv.config();
 
 const app: Express = express();
@@ -16,21 +15,20 @@ const app: Express = express();
 // Middleware
 app.use(cors());
 app.use(express.json());
+
+// Serve static files from uploads directory
+app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+
+// API Routes with /api prefix
+app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/categories', categoryRoutes);
+app.use('/api/services', serviceRoutes);
 
 // Basic health check route
 app.get('/api/health', (_req: Request, res: Response) => {
   res.json({ status: 'ok', message: 'Server is running' });
 });
-
-// Serve static files from uploads directory
-app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
-
-// Routes
-app.use('/api/auth', authRoutes);
-app.use('/api/categories', categoryRoutes);
-app.use('/api/services', serviceRoutes);
 
 // Error handling middleware
 app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
