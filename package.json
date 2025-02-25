@@ -8,7 +8,9 @@
         "dev": "nodemon src/app.ts",
         "build": "tsc",
         "test": "jest",
-        "init-db": "ts-node src/scripts/init-db.ts"
+        "init-db": "ts-node src/scripts/init-db.ts",
+        "test:security": "jest tests/security/phase1.test.ts",
+        "test:security:watch": "jest tests/security/phase1.test.ts --watch"
     },
     "dependencies": {
         "@prisma/client": "^6.2.1",
@@ -19,7 +21,9 @@
         "cors": "^2.8.5",
         "dotenv": "^16.4.7",
         "express": "^4.21.2",
+        "express-rate-limit": "^7.5.0",
         "heic-convert": "^2.1.0",
+        "helmet": "^8.0.0",
         "joi": "^17.13.3",
         "jsonwebtoken": "^9.0.2",
         "multer": "^1.4.5-lts.1",
@@ -33,7 +37,9 @@
         "@types/bcrypt": "^5.0.2",
         "@types/cors": "^2.8.17",
         "@types/express": "^4.17.21",
+        "@types/express-rate-limit": "^5.1.3",
         "@types/heic-convert": "^2.1.0",
+        "@types/helmet": "^0.0.48",
         "@types/jest": "^29.5.2",
         "@types/jsonwebtoken": "^9.0.7",
         "@types/multer": "^1.4.12",
@@ -41,9 +47,11 @@
         "@types/pg": "^8.10.2",
         "@types/react-router-dom": "^5.3.3",
         "@types/react-toastify": "^4.0.2",
+        "@types/supertest": "^6.0.2",
         "jest": "^29.5.0",
         "nodemon": "^3.1.9",
         "prisma": "^6.2.1",
+        "supertest": "^7.0.0",
         "ts-jest": "^29.1.0",
         "ts-node": "^10.9.2",
         "typescript": "^5.7.3"

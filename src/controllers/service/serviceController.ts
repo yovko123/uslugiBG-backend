@@ -107,7 +107,27 @@ export const getServices = async (req: Request, res: Response, next: NextFunctio
     }
 
     if (req.query.categoryId) {
-      where.categoryId = parseInt(req.query.categoryId as string);
+      // Handle array of categoryIds (multiple parameters with same name)
+      if (Array.isArray(req.query.categoryId)) {
+        where.categoryId = {
+          in: req.query.categoryId.map(id => parseInt(id as string))
+        };
+      } 
+      // Handle comma-separated categoryIds
+      else if ((req.query.categoryId as string).includes(',')) {
+        const categoryIds = (req.query.categoryId as string)
+          .split(',')
+          .map(id => parseInt(id.trim()))
+          .filter(id => !isNaN(id)); // Filter out any invalid IDs
+        
+        where.categoryId = {
+          in: categoryIds
+        };
+      } 
+      // Handle single categoryId (original behavior)
+      else {
+        where.categoryId = parseInt(req.query.categoryId as string);
+      }
     }
 
     if (req.query.city) {

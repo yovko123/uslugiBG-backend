@@ -1,21 +1,18 @@
 // src/middleware/upload.ts
 import multer from 'multer';
 import { Request, Response, NextFunction } from 'express';
+import { securityConfig } from '../config/security.config';
 
+// Use types from security config where possible
 type MimeType = 'image/jpeg' | 'image/png' | 'image/webp' | 'image/heic' | 'image/heif' | 'application/octet-stream';
 type FileExtension = '.jpg' | '.jpeg' | '.png' | '.webp' | '.heic' | '.heif';
 
+// Derive file limits from security configuration
 export const FILE_LIMITS = {
-  MAX_FILES: 5,
-  MAX_FILE_SIZE: 3 * 1024 * 1024, // 3MB
-  ALLOWED_MIME_TYPES: [
-    'image/jpeg',
-    'image/png',
-    'image/webp',
-    'image/heic',
-    'image/heif',
-    'application/octet-stream' // Add this for HEIC files
-  ] as MimeType[],
+  MAX_FILES: securityConfig.uploadSecurity.maxFilesPerRequest,
+  MAX_FILE_SIZE: securityConfig.uploadSecurity.maxFileSize, // Use the configured size
+  // Fix the readonly array issue - create a new array from the config values
+  ALLOWED_MIME_TYPES: Array.from(securityConfig.uploadSecurity.allowedMimeTypes) as MimeType[],
   ALLOWED_EXTENSIONS: [
     '.jpg',
     '.jpeg',
@@ -39,6 +36,7 @@ const ERROR_MESSAGES = {
 
 const storage = multer.memoryStorage();
 
+// Enhanced file filter with logging and security checks
 const fileFilter = (
   _req: Request, 
   file: Express.Multer.File, 
@@ -49,7 +47,7 @@ const fileFilter = (
   // Get file extension
   const fileExtension = file.originalname.toLowerCase().match(/\.[^.]*$/)?.[0] as FileExtension | undefined;
   
-  // First check if it's a HEIC/HEIF file
+  // Special handling for iPhone images (HEIC/HEIF)
   if (fileExtension && ['.heic', '.heif'].includes(fileExtension)) {
     // Accept HEIC/HEIF files regardless of mime type
     console.log(`Accepted HEIC/HEIF file: ${file.originalname}`);
@@ -57,8 +55,8 @@ const fileFilter = (
     return;
   }
 
-  // For non-HEIC files, check mime type
-  if (!FILE_LIMITS.ALLOWED_MIME_TYPES.includes(file.mimetype as MimeType)) {
+  // Create a string array of allowed mime types for comparison
+  if (!securityConfig.uploadSecurity.allowedMimeTypes.includes(file.mimetype as any)) {
     console.warn(`Rejected file ${file.originalname} due to invalid mime type: ${file.mimetype}`);
     callback(new Error(ERROR_MESSAGES.FILE_TYPE(FILE_LIMITS.ALLOWED_EXTENSIONS)));
     return;
@@ -71,10 +69,24 @@ const fileFilter = (
     return;
   }
 
+  // Sanitize filename if configured
+  if (securityConfig.uploadSecurity.sanitizeFilenames) {
+    const originalName = file.originalname;
+    const sanitizedName = originalName
+      .replace(/[^\w\s.-]/g, '_')
+      .replace(/\s+/g, '_');
+    
+    if (sanitizedName !== originalName) {
+      file.originalname = sanitizedName;
+      console.log(`Sanitized filename from ${originalName} to ${sanitizedName}`);
+    }
+  }
+
   console.log(`Accepted file: ${file.originalname}`);
   callback(null, true);
 };
 
+// Configure multer with our settings
 const uploadConfig = multer({
   storage,
   limits: {
@@ -84,11 +96,31 @@ const uploadConfig = multer({
   fileFilter
 });
 
+// Middleware that handles file uploads with proper error responses
 export const uploadMiddleware = (
   req: Request, 
   res: Response, 
   next: NextFunction
 ): void => {
+  // Log security event for file uploads
+  const logUploadSecurity = () => {
+    // Only log if monitoring is enabled
+    if (securityConfig.monitoring.enabled) {
+      const event = {
+        type: 'file_operation' as const,
+        ip: req.ip || 'unknown',
+        path: req.path,
+        timestamp: new Date().toISOString(),
+        details: {
+          method: req.method,
+          fileCount: req.files ? 
+            (Array.isArray(req.files) ? req.files.length : Object.keys(req.files).length) : 0
+        }
+      };
+      console.warn('Security Event:', event);
+    }
+  };
+
   console.log('Starting file upload process');
 
   uploadConfig.array('images', FILE_LIMITS.MAX_FILES)(req, res, (error: any) => {
@@ -126,6 +158,8 @@ export const uploadMiddleware = (
       return;
     }
 
+    // Log successful upload for security monitoring
+    logUploadSecurity();
     console.log(`Successfully processed ${req.files?.length || 0} files`);
     next();
   });
