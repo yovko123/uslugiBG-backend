@@ -28,6 +28,8 @@ model User {
   userType      UserType
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
+  isActive      Boolean   @default(true)
+  emailVerified Boolean   @default(false)
 
   // Profile settings
   bio           String?
@@ -54,6 +56,7 @@ model User {
   providerProfile   ProviderProfile?
   bookingsAsCustomer Booking[]
   blogPosts        BlogPost[]
+  refreshTokens    RefreshToken[]
 }
 
 enum UserType {
@@ -175,4 +178,15 @@ enum BookingStatus {
   confirmed
   completed
   cancelled
+}
+
+model RefreshToken {
+  id        Int      @id @default(autoincrement())
+  token     String   @unique
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
 }

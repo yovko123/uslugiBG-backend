@@ -9,18 +9,18 @@ import serviceRoutes from './routes/service';
 import path from 'path';
 import { configureSecurityMiddleware } from './middleware/security';
 import { uploadMiddleware } from './middleware/upload';
+import { errorHandler } from './middleware/error';
+import prisma from './config/prisma'; // Fixed import path to match actual location
 
 dotenv.config();
 
-const PORT = process.env.PORT || 3005;
-
 // Function to find and kill process on port
-const killProcessOnPort = () => {
+const killProcessOnPort = (port: number) => {
   return new Promise<void>((resolve) => {
     const platform = process.platform;
     const command = platform === 'win32'
-      ? `netstat -ano | findstr :${PORT}`
-      : `lsof -i :${PORT}`;
+      ? `netstat -ano | findstr :${port}`
+      : `lsof -i :${port}`;
 
     exec(command, (err, stdout) => {
       if (err) {
@@ -47,14 +47,8 @@ const killProcessOnPort = () => {
   });
 };
 
-const startServer = async () => {
-    // Skip port killing in test environment
-    if (process.env.NODE_ENV !== 'test') {
-      await killProcessOnPort();
-    }
-
-  const app: Express = express();
-
+// Define the middlewares configuration function
+const configureGlobalMiddleware = (app: Express): void => {
   // Apply security middleware first
   configureSecurityMiddleware(app);
 
@@ -80,7 +74,10 @@ const startServer = async () => {
     
     next();
   }, express.static(path.join(__dirname, '../uploads')));
+};
 
+// Define the routes configuration function
+const configureRoutes = (app: Express): void => {
   // API Routes
   app.use('/api/auth', authRoutes);
   app.use('/api/users', userRoutes);
@@ -92,17 +89,6 @@ const startServer = async () => {
     res.json({ status: 'ok', message: 'Server is running' });
   });
 
-  // Error handling middleware
-  app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
-    console.error('Error:', err);
-    res.status(500).json({
-      success: false,
-      message: process.env.NODE_ENV === 'production' 
-        ? 'Internal server error' 
-        : err.message
-    });
-  });
-
   // Handle 404
   app.use((_req: Request, res: Response) => {
     res.status(404).json({
@@ -110,32 +96,69 @@ const startServer = async () => {
       message: 'Route not found'
     });
   });
+};
 
-  // Start the server
-  const server = app.listen(PORT, () => {
-    console.log(`Server is running on port ${PORT}`);
-  });
+const startServer = async () => {
+  try {
+    // Get port from environment, use 0 for tests to get a random port
+    const port = process.env.NODE_ENV === 'test' 
+      ? (process.env.PORT === '0' ? 0 : parseInt(process.env.PORT || '3006')) 
+      : (parseInt(process.env.PORT || '3005'));
 
-  // Graceful shutdown handler
-  const gracefulShutdown = () => {
-    console.log('Received shutdown signal. Closing HTTP server...');
-    server.close(() => {
-      console.log('HTTP server closed');
-      process.exit(0);
-    });
+    // Skip port killing in test environment
+    if (process.env.NODE_ENV !== 'test' && port !== 0) {
+      await killProcessOnPort(port);
+    }
 
-    // Force close after 10s
-    setTimeout(() => {
-      console.error('Could not close connections in time, forcefully shutting down');
-      process.exit(1);
-    }, 10000);
-  };
+    // Connect to database
+    await prisma.$connect();
+    
+    // Configure express app
+    const app: Express = express();
+    
+    // Apply global middlewares
+    configureGlobalMiddleware(app);
+    
+    // Apply route controllers
+    configureRoutes(app);
+    
+    // Apply error handler
+    app.use(errorHandler);
+    
+    // Don't start server in test mode (the test will do it)
+    if (process.env.NODE_ENV !== 'test') {
+      const server = app.listen(port, () => {
+        console.log(`Server is running on port ${port}`);
+      });
 
-  // Handle shutdown signals
-  process.on('SIGTERM', gracefulShutdown);
-  process.on('SIGINT', gracefulShutdown);
+      // Graceful shutdown handler
+      const gracefulShutdown = () => {
+        console.log('Received shutdown signal. Closing HTTP server...');
+        server.close(() => {
+          console.log('HTTP server closed');
+          // Close database connection
+          prisma.$disconnect().then(() => {
+            process.exit(0);
+          });
+        });
 
-  return app;
+        // Force close after 10s
+        setTimeout(() => {
+          console.error('Could not close connections in time, forcefully shutting down');
+          process.exit(1);
+        }, 10000);
+      };
+
+      // Handle shutdown signals
+      process.on('SIGTERM', gracefulShutdown);
+      process.on('SIGINT', gracefulShutdown);
+    }
+    
+    return app;
+  } catch (error) {
+    console.error('Failed to start server:', error);
+    return null;
+  }
 };
 
 // Only start the server if this file is run directly

@@ -13,6 +13,53 @@ export const createService = async (req: ServiceRequest, res: Response, next: Ne
       return;
     }
 
+    // Validate required fields
+    const {
+      title,
+      description,
+      categoryId,
+      price,
+      priceType
+    } = req.body;
+
+    if (!title || !description || !categoryId || !price || !priceType) {
+      res.status(400).json({ 
+        success: false, 
+        message: 'Missing required fields' 
+      });
+      return;
+    }
+
+    // Validate numeric values
+    const parsedCategoryId = parseInt(categoryId);
+    const parsedPrice = parseFloat(price);
+    
+    if (isNaN(parsedCategoryId) || parsedCategoryId <= 0) {
+      res.status(400).json({ 
+        success: false, 
+        message: 'Invalid category ID' 
+      });
+      return;
+    }
+    
+    if (isNaN(parsedPrice) || parsedPrice <= 0) {
+      res.status(400).json({ 
+        success: false, 
+        message: 'Invalid price' 
+      });
+      return;
+    }
+
+    // Validate price type
+    const validPriceTypes = ['FIXED', 'HOURLY'];
+    if (!validPriceTypes.includes(priceType.toUpperCase())) {
+      res.status(400).json({ 
+        success: false, 
+        message: 'Invalid price type' 
+      });
+      return;
+    }
+
     const provider = await prisma.providerProfile.findUnique({
       where: { userId }
     });
@@ -23,11 +70,6 @@ export const createService = async (req: ServiceRequest, res: Response, next: Ne
     }
 
     const {
-      title,
-      description,
-      categoryId,
-      price,
-      priceType,
       address,
       city,
       state,
@@ -40,8 +82,8 @@ export const createService = async (req: ServiceRequest, res: Response, next: Ne
         providerId: provider.id,
         title,
         description,
-        categoryId: parseInt(categoryId),
-        price: parseFloat(price),
+        categoryId: parsedCategoryId,
+        price: parsedPrice,
         priceType: priceType.toUpperCase() as PriceType,
         currency: Currency.BGN,
         address,
@@ -93,90 +135,114 @@ export const createService = async (req: ServiceRequest, res: Response, next: Ne
 
 export const getServices = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    console.log('Raw query:', req.query);
+    const { 
+      categoryId, 
+      city, 
+      priceMin, 
+      priceMax, 
+      page = '1', 
+      limit = '10',
+      sortBy = 'newest'
+    } = req.query;
 
-    // Basic where clause
-    const where: Prisma.ServiceWhereInput = { isActive: true };
+    // Validate and sanitize numeric inputs
+    const pageNum = Math.max(1, parseInt(page as string) || 1);
+    const limitNum = Math.min(50, Math.max(1, parseInt(limit as string) || 10)); // Cap at 50
+    const skip = (pageNum - 1) * limitNum;
 
-    // Build filters
-    if (req.query.keyword) {
-      where.OR = [
-        { title: { contains: req.query.keyword as string, mode: Prisma.QueryMode.insensitive } },
-        { description: { contains: req.query.keyword as string, mode: Prisma.QueryMode.insensitive } }
-      ];
+    // Build where clause safely
+    const where: Prisma.ServiceWhereInput = {
+      isActive: true
+    };
+
+    // Safely add categoryId filter if provided
+    if (categoryId) {
+      const categoryIdNum = parseInt(categoryId as string);
+      if (!isNaN(categoryIdNum) && categoryIdNum > 0) {
+        where.categoryId = categoryIdNum;
+      }
     }
 
-    if (req.query.categoryId) {
-      // Handle array of categoryIds (multiple parameters with same name)
-      if (Array.isArray(req.query.categoryId)) {
-        where.categoryId = {
-          in: req.query.categoryId.map(id => parseInt(id as string))
+    // Safely add price range filters
+    if (priceMin) {
+      const priceMinNum = parseFloat(priceMin as string);
+      if (!isNaN(priceMinNum) && priceMinNum >= 0) {
+        where.price = {
+          ...(where.price as object || {}),
+          gte: priceMinNum
         };
-      } 
-      // Handle comma-separated categoryIds
-      else if ((req.query.categoryId as string).includes(',')) {
-        const categoryIds = (req.query.categoryId as string)
-          .split(',')
-          .map(id => parseInt(id.trim()))
-          .filter(id => !isNaN(id)); // Filter out any invalid IDs
-        
-        where.categoryId = {
-          in: categoryIds
+      }
+    }
+
+    if (priceMax) {
+      const priceMaxNum = parseFloat(priceMax as string);
+      if (!isNaN(priceMaxNum) && priceMaxNum > 0) {
+        where.price = {
+          ...(where.price as object || {}),
+          lte: priceMaxNum
         };
-      } 
-      // Handle single categoryId (original behavior)
-      else {
-        where.categoryId = parseInt(req.query.categoryId as string);
       }
     }
 
-    if (req.query.city) {
-      where.city = { contains: req.query.city as string, mode: Prisma.QueryMode.insensitive };
+    // Safely add city filter if provided
+    if (city && typeof city === 'string') {
+      where.provider = {
+        city: {
+          contains: city,
+          mode: 'insensitive'
+        }
+      };
     }
 
-    if (req.query.priceMin || req.query.priceMax) {
-      where.price = {};
-      if (req.query.priceMin) {
-        where.price.gte = parseFloat(req.query.priceMin as string);
-      }
-      if (req.query.priceMax) {
-        where.price.lte = parseFloat(req.query.priceMax as string);
-      }
+    // Determine sort order safely
+    let orderBy: Prisma.ServiceOrderByWithRelationInput = {};
+    switch (sortBy) {
+      case 'oldest':
+        orderBy = { createdAt: 'asc' };
+        break;
+      case 'price-low':
+        orderBy = { price: 'asc' };
+        break;
+      case 'price-high':
+        orderBy = { price: 'desc' };
+        break;
+      case 'rating':
+        orderBy = { createdAt: 'desc' };
+        break;
+      case 'newest':
+      default:
+        orderBy = { createdAt: 'desc' };
     }
 
-    // Get total count before pagination
+    // Execute count query first for pagination
     const totalCount = await prisma.service.count({ where });
 
-    // Add pagination
-    const page = parseInt(req.query.page as string) || 1;
-    const limit = parseInt(req.query.limit as string) || 6;
-    const skip = (page - 1) * limit;
-
-    // Get paginated services
+    // Execute main query with pagination
     const services = await prisma.service.findMany({
       where,
       include: {
         provider: {
-          include: {
-            user: true
-          }
+          include: { user: true }
         },
         category: true,
-        bookings: true,
         serviceImages: true
       },
-      orderBy: { createdAt: 'desc' },
+      orderBy,
       skip,
-      take: limit
+      take: limitNum
     });
 
     res.json({
       success: true,
       data: services,
-      total: totalCount
+      pagination: {
+        total: totalCount,
+        page: pageNum,
+        limit: limitNum,
+        pages: Math.ceil(totalCount / limitNum)
+      }
     });
   } catch (error) {
-    console.error('Error in getServices:', error);
     next(error);
   }
 };

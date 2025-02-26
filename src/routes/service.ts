@@ -36,7 +36,7 @@ router.use(authenticateToken);
 router.get('/provider', handleServiceRequest(getProviderServices));
 router.get('/', handleServiceRequest(getServices));
 router.post('/', uploadMiddleware, handleServiceRequest(createService));
-router.get('/:id(\\d+)', handleServiceRequest(getService));
+router.get('/:id', handleServiceRequest(getService));
 router.put('/:id', uploadMiddleware, handleServiceRequest(updateService));
 router.delete('/:id', handleServiceRequest(deleteService));
 

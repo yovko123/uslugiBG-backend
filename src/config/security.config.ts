@@ -21,16 +21,18 @@ export const helmet: HelmetOptions = {
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'"],
       styleSrc: ["'self'", "'unsafe-inline'"],
-      imgSrc: ["'self'", "data:", "blob:", process.env.FRONTEND_URL || 'http://localhost:3000'],
-      connectSrc: ["'self'", process.env.FRONTEND_URL || 'http://localhost:3000'],
-      frameSrc: ["'none'"],
+      imgSrc: ["'self'", "data:", "blob:", process.env.STORAGE_URL || ''],
+      connectSrc: ["'self'", process.env.FRONTEND_URL || 'http://localhost:3000', process.env.API_URL || ''],
+      fontSrc: ["'self'", "https://fonts.gstatic.com"],
       objectSrc: ["'none'"],
       mediaSrc: ["'self'"],
-      fontSrc: ["'self'", "https:", "data:"],
+      frameSrc: ["'none'"],
+      formAction: ["'self'"],
       upgradeInsecureRequests: process.env.NODE_ENV === 'production' ? [] : null,
     },
+    reportOnly: false
   },
   crossOriginEmbedderPolicy: process.env.NODE_ENV === 'production',
   crossOriginResourcePolicy: { 
@@ -41,13 +43,13 @@ export const helmet: HelmetOptions = {
   frameguard: true,
   hidePoweredBy: true,
   hsts: {
-    maxAge: 31536000,
+    maxAge: 15552000, // 180 days
     includeSubDomains: true,
     preload: true
   },
   ieNoOpen: true,
   noSniff: true,
-  referrerPolicy: { policy: "strict-origin-when-cross-origin" },
+  referrerPolicy: { policy: 'same-origin' },
   xssFilter: true
 };
 
@@ -55,11 +57,24 @@ export const helmet: HelmetOptions = {
  * CORS Configuration
  */
 export const cors: CorsOptions = {
-  origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+  origin: (origin, callback) => {
+    const allowedOrigins = (process.env.ALLOWED_ORIGINS || process.env.FRONTEND_URL || 'http://localhost:3000').split(',');
+    
+    // Allow requests with no origin (like mobile apps, curl requests)
+    if (!origin || allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      console.warn(`CORS blocked request from origin: ${origin}`);
+      callback(new Error('CORS policy violation'), false);
+    }
+  },
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
+  exposedHeaders: ['Content-Length', 'X-Request-Id'],
   credentials: true,
-  maxAge: 86400 // 24 hours
+  maxAge: 86400, // 24 hours
+  preflightContinue: false,
+  optionsSuccessStatus: 204
 };
 
 /**
@@ -121,6 +136,7 @@ export const uploadSecurity = {
     // iPhone images sometimes come as application/octet-stream
     'application/octet-stream'
   ],
+  allowedExtensions: ['.jpg', '.jpeg', '.png', '.webp', '.heic', '.heif'],
   scanForMalware: process.env.NODE_ENV === 'production',
   sanitizeFilenames: true,
   maxFilesPerRequest: 5

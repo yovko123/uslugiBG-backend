@@ -78,3 +78,53 @@ export const validateBlogPost = (data: any) => {
 
   return schema.validate(data);
 };
+
+/**
+ * Validates password complexity requirements
+ * 
+ * Requirements:
+ * - Minimum 8 characters
+ * - At least one uppercase letter
+ * - At least one lowercase letter
+ * - At least one digit
+ * - At least one special character
+ * 
+ * @param password Password to validate
+ * @returns Object with success flag and error messages
+ */
+export const validatePasswordComplexity = (password: string): {
+  isValid: boolean;
+  errors: string[];
+} => {
+  const errors: string[] = [];
+  
+  // Check minimum length
+  if (password.length < 8) {
+    errors.push('Password must be at least 8 characters long');
+  }
+  
+  // Check for uppercase letters
+  if (!/[A-Z]/.test(password)) {
+    errors.push('Password must contain at least one uppercase letter');
+  }
+  
+  // Check for lowercase letters
+  if (!/[a-z]/.test(password)) {
+    errors.push('Password must contain at least one lowercase letter');
+  }
+  
+  // Check for digits
+  if (!/\d/.test(password)) {
+    errors.push('Password must contain at least one digit');
+  }
+  
+  // Check for special characters
+  if (!/[!@#$%^&*(),.?":{}|<>]/.test(password)) {
+    errors.push('Password must contain at least one special character');
+  }
+  
+  return {
+    isValid: errors.length === 0,
+    errors
+  };
+};

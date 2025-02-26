@@ -11,9 +11,10 @@ router.use((req, _res, next) => {
   next();
 });
 
-// Removed unused parameters
+// Auth routes
 router.post('/register', register);
 router.post('/login', login);
 router.post('/refresh-token', refreshToken);
+router.post('/refresh', refreshToken); // Add this route to support both endpoints
 
 export default router;

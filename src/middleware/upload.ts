@@ -2,6 +2,7 @@
 import multer from 'multer';
 import { Request, Response, NextFunction } from 'express';
 import { securityConfig } from '../config/security.config';
+import path from 'path';
 
 // Use types from security config where possible
 type MimeType = 'image/jpeg' | 'image/png' | 'image/webp' | 'image/heic' | 'image/heif' | 'application/octet-stream';
@@ -38,34 +39,35 @@ const storage = multer.memoryStorage();
 
 // Enhanced file filter with logging and security checks
 const fileFilter = (
-  _req: Request, 
-  file: Express.Multer.File, 
+  _req: Request,
+  file: Express.Multer.File,
   callback: multer.FileFilterCallback
 ): void => {
-  console.log(`Processing file: ${file.originalname}, type: ${file.mimetype}`);
-
-  // Get file extension
-  const fileExtension = file.originalname.toLowerCase().match(/\.[^.]*$/)?.[0] as FileExtension | undefined;
-  
-  // Special handling for iPhone images (HEIC/HEIF)
-  if (fileExtension && ['.heic', '.heif'].includes(fileExtension)) {
-    // Accept HEIC/HEIF files regardless of mime type
-    console.log(`Accepted HEIC/HEIF file: ${file.originalname}`);
-    callback(null, true);
+  // Check if the file exists
+  if (!file) {
+    callback(new Error('No file provided'));
     return;
   }
 
-  // Create a string array of allowed mime types for comparison
-  if (!securityConfig.uploadSecurity.allowedMimeTypes.includes(file.mimetype as any)) {
-    console.warn(`Rejected file ${file.originalname} due to invalid mime type: ${file.mimetype}`);
-    callback(new Error(ERROR_MESSAGES.FILE_TYPE(FILE_LIMITS.ALLOWED_EXTENSIONS)));
+  // Check file size (already handled by limits, but double-check)
+  const maxSize = securityConfig.uploadSecurity.maxFileSize;
+  if (file.size > maxSize) {
+    callback(new Error(`File size exceeds the limit of ${maxSize / (1024 * 1024)}MB`));
     return;
   }
 
-  // Check file extension for non-HEIC files
-  if (!fileExtension || !FILE_LIMITS.ALLOWED_EXTENSIONS.includes(fileExtension)) {
-    console.warn(`Rejected file ${file.originalname} due to invalid extension`);
-    callback(new Error(ERROR_MESSAGES.FILE_EXTENSION(FILE_LIMITS.ALLOWED_EXTENSIONS)));
+  // Check file type
+  const allowedMimeTypes = securityConfig.uploadSecurity.allowedMimeTypes;
+  if (!allowedMimeTypes.includes(file.mimetype as any)) {
+    callback(new Error(`File type not allowed. Allowed types: ${allowedMimeTypes.join(', ')}`));
+    return;
+  }
+
+  // Check file extension
+  const fileExtension = path.extname(file.originalname).toLowerCase();
+  const allowedExtensions = securityConfig.uploadSecurity.allowedExtensions;
+  if (!allowedExtensions.includes(fileExtension as any)) {
+    callback(new Error(`File extension not allowed. Allowed extensions: ${allowedExtensions.join(', ')}`));
     return;
   }
 
