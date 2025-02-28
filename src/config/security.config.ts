@@ -83,15 +83,15 @@ export const cors: CorsOptions = {
 export const rateLimiting = {
   global: {
     windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 100,
+    max: 500,
     message: 'Too many requests, please try again later.',
     standardHeaders: true,
     legacyHeaders: false
   },
   auth: {
     windowMs: 60 * 60 * 1000, // 1 hour
-    max: 5,
-    message: 'Too many failed authentication attempts, please try again later.',
+    max: process.env.NODE_ENV === 'production' ? 10 : 50, // Increased for development
+    message: 'Too many authentication attempts, please try again later.',
     skipSuccessfulRequests: true
   },
   uploads: {

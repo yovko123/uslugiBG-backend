@@ -34,9 +34,12 @@ model User {
   // Profile settings
   bio           String?
   address       String?
-  country       String?
-  state         String?
-  city          String?
+  countryId     Int?
+  country       Country? @relation(fields: [countryId], references: [id])
+  stateId       Int?
+  state         State?     @relation(fields: [stateId], references: [id])
+  cityId        Int?
+  city          City?      @relation(fields: [cityId], references: [id])
   postalCode    String?
   currency      String?
   language      String?
@@ -52,11 +55,20 @@ model User {
   smsNotifications   Boolean @default(true)
   promotionalEmails  Boolean @default(true)
 
+  // Update location fields to use relations
+  countryName String?
+  stateName   String?
+  cityName    String?
+  
   // Relations
   providerProfile   ProviderProfile?
   bookingsAsCustomer Booking[]
   blogPosts        BlogPost[]
   refreshTokens    RefreshToken[]
+
+  @@index([countryId])
+  @@index([stateId])
+  @@index([cityId])
 }
 
 enum UserType {
@@ -189,4 +201,52 @@ model RefreshToken {
   createdAt DateTime @default(now())
 
   @@index([userId])
+}
+
+// Add these models for location data
+model Country {
+  id        Int      @id @default(autoincrement())
+  name      String
+  nameBg    String?  // Bulgarian name
+  code      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  // Relations
+  states    State[]
+  users     User[]
+}
+
+model State {
+  id        Int      @id @default(autoincrement())
+  name      String
+  nameBg    String?  // Bulgarian name
+  countryId Int
+  country   Country  @relation(fields: [countryId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  // Relations
+  cities    City[]
+  users     User[]
+  
+  @@unique([name, countryId])
+  @@index([countryId])
+}
+
+model City {
+  id         Int      @id @default(autoincrement())
+  name       String
+  nameBg     String?  // Bulgarian name
+  stateId    Int
+  state      State    @relation(fields: [stateId], references: [id])
+  postalCode String   @default("")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  
+  // Relations
+  users      User[]
+  
+  @@unique([name, stateId])
+  @@index([stateId])
 }
