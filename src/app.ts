@@ -7,6 +7,7 @@ import userRoutes from './routes/user';
 import categoryRoutes from './routes/category';
 import serviceRoutes from './routes/service';
 import locationRoutes from './routes/location';
+import locationRoutes from './routes/location';
 import path from 'path';
 import { configureSecurityMiddleware } from './middleware/security';
 import { uploadMiddleware } from './middleware/upload';
@@ -85,8 +86,6 @@ const configureRoutes = (app: Express): void => {
   app.use('/api/users', userRoutes);
   app.use('/api/categories', categoryRoutes);
   app.use('/api/services', serviceRoutes);
-  app.use('/api/locations', locationRoutes);
-  app.use('/api/bookings', bookingRoutes);
 
   // Basic health check route
   app.get('/api/health', (_req: Request, res: Response) => {
