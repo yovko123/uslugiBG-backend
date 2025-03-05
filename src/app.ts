@@ -12,6 +12,7 @@ import { configureSecurityMiddleware } from './middleware/security';
 import { uploadMiddleware } from './middleware/upload';
 import { errorHandler } from './middleware/error';
 import prisma from './config/prisma'; // Fixed import path to match actual location
+import bookingRoutes from './routes/booking';
 
 dotenv.config();
 
@@ -85,6 +86,7 @@ const configureRoutes = (app: Express): void => {
   app.use('/api/categories', categoryRoutes);
   app.use('/api/services', serviceRoutes);
   app.use('/api/locations', locationRoutes);
+  app.use('/api/bookings', bookingRoutes);
 
   // Basic health check route
   app.get('/api/health', (_req: Request, res: Response) => {
@@ -99,6 +101,9 @@ const configureRoutes = (app: Express): void => {
     });
   });
 };
+
+// Auto-complete job scheduling
+import { scheduleAutoCompleteJob } from './jobs/autoCompleteBookings';
 
 const startServer = async () => {
   try {
@@ -126,6 +131,11 @@ const startServer = async () => {
     
     // Apply error handler
     app.use(errorHandler);
+
+    // Schedule jobs
+    if (process.env.NODE_ENV !== 'test') {
+      scheduleAutoCompleteJob();
+    }
     
     // Don't start server in test mode (the test will do it)
     if (process.env.NODE_ENV !== 'test') {

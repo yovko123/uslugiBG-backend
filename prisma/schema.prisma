@@ -18,6 +18,12 @@ enum PriceType {
   HOURLY
 }
 
+// enum for booking types
+enum BookingType {
+  DIRECT    // Immediate booking without provider confirmation
+  INQUIRY   // Request that requires provider approval
+}
+
 model User {
   id            Int       @id @default(autoincrement())
   email         String    @unique
@@ -74,6 +80,7 @@ model User {
 enum UserType {
   provider
   customer
+  admin
 }
 
 model ProviderProfile {
@@ -107,6 +114,7 @@ model Service {
   priceType     PriceType
   currency      Currency  @default(BGN)
   isActive      Boolean   @default(true)
+  bookingType   BookingType @default(DIRECT)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
   address       String?
@@ -165,9 +173,46 @@ model Booking {
   totalPrice  Float
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
-
+  
+  // Completion tracking fields
+  completedByCustomer  Boolean @default(false)
+  completedByProvider  Boolean @default(false)
+  autoCompletedAt      DateTime?
+  
+  // Dispute handling fields
+  hasDispute           Boolean @default(false)
+  disputeReason        String?
+  disputeStatus        DisputeStatus?
+  disputeResolvedAt    DateTime?
+  
+  // Review eligibility tracking
+  reviewEligible       Boolean @default(false)
+  reviewEligibleUntil  DateTime?
+  
+  // Cancellation tracking for anti-abuse
+  cancelledBy          Int?
+  cancellationReason   String?
+  cancellationTime     DateTime?
+  
   // Relations
+  statusHistory        BookingStatusHistory[]
   review      Review?
+  
+  @@index([serviceId])
+  @@index([customerId])
+}
+
+model BookingStatusHistory {
+  id            Int           @id @default(autoincrement())
+  bookingId     Int
+  booking       Booking       @relation(fields: [bookingId], references: [id])
+  previousStatus BookingStatus
+  newStatus     BookingStatus
+  changedBy     Int          // User ID who made the change
+  changedAt     DateTime     @default(now())
+  reason        String?      // Optional reason for the status change
+  
+  @@index([bookingId])
 }
 
 model Review {
@@ -188,8 +233,20 @@ enum BlogStatus {
 enum BookingStatus {
   pending
   confirmed
+  in_progress    // New status: Service is currently being performed
   completed
   cancelled
+  no_show_customer  // New status: Customer didn't show up
+  no_show_provider  // New status: Provider didn't show up
+  disputed       // New status: Service has an active dispute
+}
+
+// Enum for dispute status
+enum DisputeStatus {
+  OPEN
+  RESOLVED_FOR_CUSTOMER
+  RESOLVED_FOR_PROVIDER
+  CLOSED_NO_RESOLUTION
 }
 
 model RefreshToken {
