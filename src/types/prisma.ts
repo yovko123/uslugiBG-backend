@@ -8,7 +8,7 @@ export interface User {
     firstName: string;
     lastName: string;
     phone: string;
-    userType: 'provider' | 'customer';
+    userType: 'provider' | 'customer' | 'admin';
     createdAt: Date;
     updatedAt: Date;
   }
@@ -100,7 +100,7 @@ export interface ServiceImage {
       id: number;
       serviceId: number;
       bookingDate: Date;
-      status: 'pending' | 'confirmed' | 'completed' | 'cancelled';
+      status: 'pending' | 'confirmed' | 'completed' | 'cancelled' | "in_progress" | "no_show_customer" | "no_show_provider" | "disputed";
       totalPrice: number;
     }>;
     blogPosts?: Array<{
