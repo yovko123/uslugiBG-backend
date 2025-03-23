@@ -3,7 +3,7 @@ import { Request, Response, NextFunction } from 'express';
 import prisma from '../../config/prisma';
 import { storage } from '../../config/storage.config';
 import { ServiceRequest } from '../../types/middleware';
-import { PriceType, Currency, Prisma } from '@prisma/client';
+import { PriceType, Currency, Prisma, BookingType } from '@prisma/client';
 
 export const createService = async (req: ServiceRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
@@ -19,7 +19,8 @@ export const createService = async (req: ServiceRequest, res: Response, next: Ne
       description,
       categoryId,
       price,
-      priceType
+      priceType,
+      bookingType
     } = req.body;
 
     if (!title || !description || !categoryId || !price || !priceType) {
@@ -60,6 +61,17 @@ export const createService = async (req: ServiceRequest, res: Response, next: Ne
       return;
     }
 
+    // Validate booking type
+    const validBookingTypes = ['DIRECT', 'INQUIRY'];
+    const normalizedBookingType = bookingType?.toUpperCase() || 'DIRECT';
+    if (!validBookingTypes.includes(normalizedBookingType)) {
+      res.status(400).json({ 
+        success: false, 
+        message: 'Invalid booking type' 
+      });
+      return;
+    }
+
     const provider = await prisma.providerProfile.findUnique({
       where: { userId }
     });
@@ -85,6 +97,7 @@ export const createService = async (req: ServiceRequest, res: Response, next: Ne
         categoryId: parsedCategoryId,
         price: parsedPrice,
         priceType: priceType.toUpperCase() as PriceType,
+        bookingType: normalizedBookingType as BookingType,
         currency: Currency.BGN,
         address,
         city,
@@ -375,112 +388,152 @@ export const getProviderServices = async (req: Request, res: Response, next: Nex
   }
 };
 
-
 export const updateService = async (
   req: ServiceRequest, 
   res: Response, 
   next: NextFunction
 ): Promise<void | Response> => {
   try {
-      const { id } = req.params;
-      const files = req.files as Express.Multer.File[];
-      const deleteImageIds = JSON.parse(req.body.deleteImageIds || '[]');
-      const MAX_IMAGES = 5;
+    // Check authentication and ownership
+    const userId = req.user?.id;
+    const serviceId = parseInt(req.params.id);
 
-      // Get current service with images
-      const currentService = await prisma.service.findUnique({
-          where: { id: parseInt(id) },
-          include: {
-              serviceImages: true
-          }
+    if (!userId) {
+      return res.status(401).json({ 
+        success: false, 
+        message: 'Unauthorized' 
       });
+    }
 
-      if (!currentService) {
-          return res.status(404).json({
-              success: false,
-              message: 'Service not found'
-          });
+    // Check if service exists and belongs to this provider
+    const provider = await prisma.providerProfile.findUnique({
+      where: { userId }
+    });
+
+    if (!provider) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Provider profile not found' 
+      });
+    }
+
+    const existingService = await prisma.service.findUnique({
+      where: { id: serviceId },
+      select: { providerId: true }
+    });
+
+    if (!existingService) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Service not found' 
+      });
+    }
+
+    if (existingService.providerId !== provider.id) {
+      return res.status(403).json({ 
+        success: false, 
+        message: 'You do not have permission to update this service' 
+      });
+    }
+
+    // Extract and validate fields
+    const {
+      title,
+      description,
+      categoryId,
+      price,
+      priceType,
+      bookingType,
+      address,
+      city,
+      state,
+      postalCode
+    } = req.body;
+
+    // Build update data object
+    const updateData: any = {};
+
+    // Update title if provided
+    if (title !== undefined) {
+      updateData.title = title;
+    }
+
+    // Update description if provided
+    if (description !== undefined) {
+      updateData.description = description;
+    }
+
+    // Update categoryId if provided and valid
+    if (categoryId !== undefined) {
+      const parsedCategoryId = parseInt(categoryId);
+      if (isNaN(parsedCategoryId) || parsedCategoryId <= 0) {
+        return res.status(400).json({ 
+          success: false, 
+          message: 'Invalid category ID' 
+        });
       }
+      updateData.categoryId = parsedCategoryId;
+    }
 
-      // Calculate total images after update
-      const remainingImages = currentService.serviceImages.filter(
-          img => !deleteImageIds.includes(img.id)
-      ).length;
-      const newImagesCount = files?.length || 0;
-      const totalImagesAfterUpdate = remainingImages + newImagesCount;
-
-      if (totalImagesAfterUpdate > MAX_IMAGES) {
-          return res.status(400).json({
-              success: false,
-              message: `Maximum ${MAX_IMAGES} images allowed. Current total would be ${totalImagesAfterUpdate}`
-          });
+    // Update price if provided and valid
+    if (price !== undefined) {
+      const parsedPrice = parseFloat(price);
+      if (isNaN(parsedPrice) || parsedPrice <= 0) {
+        return res.status(400).json({ 
+          success: false, 
+          message: 'Invalid price' 
+        });
       }
+      updateData.price = parsedPrice;
+    }
 
-      const serviceData = {
-        ...(req.body.title && { title: req.body.title }),
-        ...(req.body.description && { description: req.body.description }),
-        ...(req.body.categoryId && { categoryId: parseInt(req.body.categoryId) }),
-        ...(req.body.price && { price: parseFloat(req.body.price) }),
-        ...(req.body.priceType && { priceType: req.body.priceType }),
-        ...(req.body.address && { address: req.body.address }),
-        ...(req.body.city && { city: req.body.city }),
-        ...(req.body.state && { state: req.body.state }),
-        ...(req.body.postalCode && { postalCode: req.body.postalCode }),
-        ...(typeof req.body.isActive !== 'undefined' && { 
-            isActive: req.body.isActive === true || req.body.isActive === 'true' 
-        })
-    };
+    // Update priceType if provided and valid
+    if (priceType !== undefined) {
+      const validPriceTypes = ['FIXED', 'HOURLY'];
+      if (!validPriceTypes.includes(priceType.toUpperCase())) {
+        return res.status(400).json({ 
+          success: false, 
+          message: 'Invalid price type' 
+        });
+      }
+      updateData.priceType = priceType.toUpperCase() as PriceType;
+    }
+    
+    // Update bookingType if provided and valid
+    if (bookingType !== undefined) {
+      const validBookingTypes = ['DIRECT', 'INQUIRY'];
+      if (!validBookingTypes.includes(bookingType.toUpperCase())) {
+        return res.status(400).json({ 
+          success: false, 
+          message: 'Invalid booking type' 
+        });
+      }
+      updateData.bookingType = bookingType.toUpperCase() as BookingType;
+    }
 
-      // Start a transaction
-      const updatedService = await prisma.$transaction(async (prisma) => {
-          // Handle image deletions
-          if (deleteImageIds.length > 0) {
-              const imagesToDelete = await prisma.serviceImage.findMany({
-                  where: {
-                      id: { in: deleteImageIds }
-                  }
-              });
+    // Update location fields if provided
+    if (address !== undefined) updateData.address = address;
+    if (city !== undefined) updateData.city = city;
+    if (state !== undefined) updateData.state = state;
+    if (postalCode !== undefined) updateData.postalCode = postalCode;
 
-              for (const image of imagesToDelete) {
-                  await storage.deleteFile(image.imageUrl);
-                  await prisma.serviceImage.delete({
-                      where: { id: image.id }
-                  });
-              }
-          }
+    // Update service
+    const updatedService = await prisma.service.update({
+      where: { id: serviceId },
+      data: updateData,
+      include: {
+        serviceImages: true,
+        provider: true
+      }
+    });
 
-          // Handle new images
-          if (files && files.length > 0) {
-              for (const file of files) {
-                  const imageUrl = await storage.saveFile(file.buffer, file.originalname);
-                  await prisma.serviceImage.create({
-                      data: {
-                          serviceId: parseInt(id),
-                          imageUrl: imageUrl,
-                          isMain: false
-                      }
-                  });
-              }
-          }
-
-          // Update service
-          return await prisma.service.update({
-              where: { id: parseInt(id) },
-              data: serviceData,
-              include: {
-                  serviceImages: true,
-                  provider: true
-              }
-          });
-      });
-
-      return res.json({
-          success: true,
-          data: updatedService,
-          message: 'Service updated successfully'
-      });
+    return res.json({
+      success: true,
+      data: updatedService,
+      message: 'Service updated successfully'
+    });
   } catch (error) {
-      next(error);
+    next(error);
   }
 };
 

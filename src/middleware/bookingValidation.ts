@@ -120,6 +120,52 @@ export const validateStatusTransition = async (
       req.body.cancelledBy = userId;
       req.body.cancellationTime = new Date();
     }
+
+    // Completion checks
+    if (newStatus === BookingStatus.completed) {
+      // Both provider and customer must mark as complete
+      const bothMarkedComplete = booking.completedByProvider && booking.completedByCustomer;
+      
+      // If user is customer and they're marking it complete
+      if (isCustomer && !booking.completedByCustomer) {
+        req.body.completedByCustomer = true;
+      }
+      
+      // If user is provider and they're marking it complete
+      if (isProvider && !booking.completedByProvider) {
+        req.body.completedByProvider = true;
+      }
+      
+      // If not both marked complete, revert to in_progress status
+      if (!bothMarkedComplete && !req.body.autoCompleted) {
+        // If this is not an auto-completion, revert to in_progress
+        if (!(req.body.completedByCustomer && req.body.completedByProvider)) {
+          req.body.status = BookingStatus.in_progress;
+        }
+      } else {
+        // When a booking is completed, it becomes eligible for reviews
+        req.body.reviewEligible = true;
+        
+        // Set review eligibility window (14 days)
+        const reviewEligibleUntil = new Date();
+        reviewEligibleUntil.setDate(reviewEligibleUntil.getDate() + 14);
+        req.body.reviewEligibleUntil = reviewEligibleUntil;
+      }
+    }
+    
+    // Dispute handling
+    if (newStatus === BookingStatus.disputed) {
+      req.body.hasDispute = true;
+      
+      // Require a dispute reason
+      if (!req.body.disputeReason) {
+        res.status(400).json({
+          success: false,
+          message: 'A reason is required when raising a dispute'
+        });
+        return;
+      }
+    }
     
     // Add to status history for audit trail
     req.body.statusHistory = {

@@ -6,14 +6,12 @@ import authRoutes from './routes/auth';
 import userRoutes from './routes/user';
 import categoryRoutes from './routes/category';
 import serviceRoutes from './routes/service';
-import locationRoutes from './routes/location';
-import locationRoutes from './routes/location';
 import path from 'path';
 import { configureSecurityMiddleware } from './middleware/security';
 import { uploadMiddleware } from './middleware/upload';
 import { errorHandler } from './middleware/error';
 import prisma from './config/prisma'; // Fixed import path to match actual location
-import bookingRoutes from './routes/booking';
+import { registerScheduledJobs } from './jobs/scheduleJobs';
 
 dotenv.config();
 
@@ -101,9 +99,6 @@ const configureRoutes = (app: Express): void => {
   });
 };
 
-// Auto-complete job scheduling
-import { scheduleAutoCompleteJob } from './jobs/autoCompleteBookings';
-
 const startServer = async () => {
   try {
     // Get port from environment, use 0 for tests to get a random port
@@ -133,7 +128,7 @@ const startServer = async () => {
 
     // Schedule jobs
     if (process.env.NODE_ENV !== 'test') {
-      scheduleAutoCompleteJob();
+      registerScheduledJobs();
     }
     
     // Don't start server in test mode (the test will do it)

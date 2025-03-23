@@ -1,36 +1,37 @@
 // src/jobs/autoCompleteBookings.ts
 import { PrismaClient, BookingStatus } from '@prisma/client';
-import { scheduleJob } from 'node-schedule';
+import { subHours } from 'date-fns';
 
 const prisma = new PrismaClient();
 
 /**
- * This job automatically completes bookings if:
- * 1. The service date has passed more than 72 hours ago
- * 2. The booking is still in in_progress status
- * 3. The customer has marked it as completed
- * 4. The provider has not responded (marked as completed or disputed)
- * 
- * This prevents providers from manipulating the review system by never marking completion
+ * Auto-completes bookings after 72 hours if one party has marked it as complete but not both
+ * This prevents bookings from being stuck in limbo if one party doesn't respond
  */
-export const autoCompleteBookingsJob = async (): Promise<void> => {
+export async function autoCompleteBookings(): Promise<void> {
   try {
-    console.log('Running auto-complete bookings job');
+    console.log('Running auto-completion job for bookings...');
     
-    // Calculate the cutoff time (72 hours ago)
-    const cutoffTime = new Date();
-    cutoffTime.setHours(cutoffTime.getHours() - 72);
+    // Find bookings that are in progress and either customer or provider (but not both) has marked as complete
+    // and the last update was at least 72 hours ago
+    const timeThreshold = subHours(new Date(), 72);
     
-    // Find bookings that meet the criteria
     const bookingsToAutoComplete = await prisma.booking.findMany({
       where: {
         status: BookingStatus.in_progress,
-        bookingDate: {
-          lt: cutoffTime
+        updatedAt: {
+          lt: timeThreshold
         },
-        completedByCustomer: true,
-        completedByProvider: false,
-        hasDispute: false
+        OR: [
+          {
+            completedByCustomer: true,
+            completedByProvider: false
+          },
+          {
+            completedByCustomer: false,
+            completedByProvider: true
+          }
+        ]
       },
       include: {
         service: {
@@ -41,57 +42,57 @@ export const autoCompleteBookingsJob = async (): Promise<void> => {
         customer: true
       }
     });
-    
+
     console.log(`Found ${bookingsToAutoComplete.length} bookings to auto-complete`);
     
-    // Process each booking
+    // Auto-complete each booking
     for (const booking of bookingsToAutoComplete) {
-      // Create a cutoff date for review eligibility (14 days from now)
+      // Set review eligibility window (14 days from now)
       const reviewEligibleUntil = new Date();
       reviewEligibleUntil.setDate(reviewEligibleUntil.getDate() + 14);
       
       // Update the booking
       await prisma.booking.update({
-        where: {
-          id: booking.id
-        },
+        where: { id: booking.id },
         data: {
           status: BookingStatus.completed,
+          completedByCustomer: true,
           completedByProvider: true,
           autoCompletedAt: new Date(),
           reviewEligible: true,
           reviewEligibleUntil,
           statusHistory: {
             create: {
-              previousStatus: booking.status,
+              previousStatus: BookingStatus.in_progress,
               newStatus: BookingStatus.completed,
-              changedBy: 0, // System ID
+              changedBy: 0, // System-generated change
               reason: 'Auto-completed after 72 hours'
             }
           }
         }
       });
       
-      console.log(`Auto-completed booking ID: ${booking.id}`);
+      console.log(`Auto-completed booking #${booking.id}`);
       
-      // Here you would also send notifications to both parties
-      // Implementation would depend on your notification system
+      // Here you would typically also send notifications to both parties
+      // TODO: Add notification sending logic
     }
+    
+    console.log('Auto-completion job completed successfully');
   } catch (error) {
-    console.error('Error in auto-complete bookings job:', error);
+    console.error('Error in auto-completion job:', error);
   }
-};
+}
 
-/**
- * Schedule the job to run daily at midnight
- */
-export const scheduleAutoCompleteJob = (): void => {
-  // Run at midnight every day
-  scheduleJob('0 0 * * *', autoCompleteBookingsJob);
-  console.log('Auto-complete bookings job scheduled');
-};
-
-export default {
-  autoCompleteBookingsJob,
-  scheduleAutoCompleteJob
-};
+// If running this file directly
+if (require.main === module) {
+  autoCompleteBookings()
+    .then(() => {
+      console.log('Auto-completion job executed successfully');
+      process.exit(0);
+    })
+    .catch(err => {
+      console.error('Error executing auto-completion job:', err);
+      process.exit(1);
+    });
+}
